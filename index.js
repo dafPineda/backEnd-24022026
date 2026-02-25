@@ -1,8 +1,9 @@
 const express = require('express')
 const cors = require('cors')
-
+const rateLimit = require('express-rate-limit')
 const { router: productosRouter } = require('./src/routes/productos.routes')
-const {router: usersRouter} = require('./src/routes/users.routes')
+const { router: usersRouter } = require('./src/routes/users.routes')
+const { pool } = require ('./src/db')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -23,11 +24,21 @@ app.use(
   })
 );
 
+const limiter = rateLimit({
+  windowMs:15*60*1000,
+  max:100,
+  message: 'Demasiadas peticiones'
+})
+app.use(limiter)
 const{sign, authMiddleware} = require('./src/auth')
 
 app.use(express.json())
 app.use('/productos', productosRouter);
 app.use('/users', usersRouter)
+
+app.use((req, res, next) =>{
+  console.log(`${req.method} ${req.url}`)
+})
 
 app.post('/login', (req, res)=>{
   const {email, password} = req.body
@@ -55,7 +66,7 @@ app.listen(PORT, () => {
 //esta parte es la salud del sistema. Checa constantemente si la conexion es corecta y se recibe cominucacion
 app.get('/health', async (req, res) => {
   try{
-    await pool.query('select 1')
+    const res = await pool.query('select 1')
     return res.json({ok:true})
   }catch(err){
     return res.status(500).json({ok: false,})
