@@ -1,40 +1,59 @@
 const express = require('express')
 const cors = require('cors')
-const rateLimit = require('express-rate-limit')
+const { pool } = require ('./src/db')
+const { sign, authMiddleware } = require('./src/auth');
 const { router: productosRouter } = require('./src/routes/productos.routes')
 const { router: usersRouter } = require('./src/routes/users.routes')
-const { pool } = require ('./src/db')
 
 const app = express()
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT || 3001 
 
 const allowed = [
   'http://localhost:3000',
   'http://localhost:3001'
+  //,ruta de vercel
 ]
 
-//app.use(cors({orgin:'http://localhost:3000'}))
-app.use(
-  cors({
-    origin: function (origin, cb){
-      if(!origin) return cb(null, true)
-      if(allowed.includes(origin)) return cb(null, true)
-      return cb(new Error('CORS bloqueado: '+ origin))
-    }
-  })
-);
-
-const limiter = rateLimit({
-  windowMs:15*60*1000,
-  max:100,
-  message: 'Demasiadas peticiones'
-})
-app.use(limiter)
-const{sign, authMiddleware} = require('./src/auth')
+app.use(cors({
+  origin: function (origin, cb) {
+    if (!origin) return cb(null, true); // Postman
+    if (allowed.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS bloqueado: ' + origin));
+  }
+}));
 
 app.use(express.json())
+app.get('/', (req, res) => {
+  res.send('API OK');
+})
 app.use('/productos', productosRouter);
 app.use('/users', usersRouter)
+
+app.get('/private', authMiddleware, (req, res) =>{
+  return res.json({
+    ok:true,
+    user:req.user
+  })
+})
+
+app.listen(PORT, () => {
+  console.log(`Servidor Corriendo en http://localhost:${PORT}`)
+})
+
+//esta parte es la salud del sistema. Checa constantemente si la conexion es corecta y se recibe cominucacion
+app.get('/health', (req, res) => {
+  res.json({ok:true, service:'api'})
+})
+
+app.get('/health/db', async (req, res) => {
+  try {
+    const r = await pool.query('select 1 as ok');
+    return res.json({ok:true, db:r.rows[0].ok})
+  } catch (err) {
+    console.log('DB Error', err.message)
+    return res.status(500).json({ok:false, error:'DB no disponible'})
+  }
+})
 
 app.use((req, res, next) =>{
   console.log(`${req.method} ${req.url}`)
@@ -51,24 +70,14 @@ app.post('/login', (req, res)=>{
   return res.json({token})
 })
 
-app.get('/private', authMiddleware, (req, res) =>{
-  return res.json({
-    ok:true,
-    user:req.user
-  })
-})
+const rateLimit = require('express-rate-limit')
 
-
-app.listen(PORT, () => {
-  console.log(`Servidor Corriendo en http://localhost:${PORT}`)
+const limiter = rateLimit({
+  windowMs:15*60*1000,
+  max:100,
+  message: 'Demasiadas peticiones'
 })
+app.use(limiter)
 
-//esta parte es la salud del sistema. Checa constantemente si la conexion es corecta y se recibe cominucacion
-app.get('/health', async (req, res) => {
-  try{
-    const res = await pool.query('select 1')
-    return res.json({ok:true})
-  }catch(err){
-    return res.status(500).json({ok: false,})
-  }
-})
+const { errorHandler } = require('./src/middlewares/error.middleware');
+app.use(errorHandler);
